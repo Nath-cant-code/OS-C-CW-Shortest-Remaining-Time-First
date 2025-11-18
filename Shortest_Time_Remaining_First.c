@@ -1,273 +1,347 @@
+//Terminal code:
+//gcc srtf_multithread.c -o srtf -pthread
+//.\srtf
+
 #include <stdio.h>
 #include <stdlib.h>
-#include <limits.h>
+#include <string.h>
+#include <pthread.h>
+#include <unistd.h>
 
+#define MAX_PROC 10
+#define MAX_TIMELINE 1000
 
-struct Process {
-    char processID[5];
-    int arrivalTime;
-    int burstTime_CPU;
-    int burstTimeRemaining;
-    int completionTime;
-    int turnaroundTime;
-    int waitingTime;
-    int responseTime;
-    char state[10];
-    // state can be int, e.g. 1 for "ready", 2 for "running", etc.
-    // the mapping can be defined elsewhere in the code, most probably in output section
-};
-
-/*int main () {
-    int n = 0;
-    printf("Enter number of processes(1-10): ");
-    scanf("%d", &n);
-    getchar();  // to consume the newline character after number input
-    
-    // validates the number of processes to be between 1 and 10 inclusive
-    while (n < 1 || n > 10) {
-        printf("Invalid number of processes. Please enter a number between 1 and 10 inclusive.\n");
-        scanf("%d", &n);
-        getchar();  // to consume the newline character after number input
-    }
-
-    struct Process processes[n];
-
-    printf("\nEnter arrival and burst times:\n");
-
-    // for loop for user input of arrival and burst times
-    for (int i = 0; i < n; i++) {
-        // sprintf(dest, "format string", values...) writes formatted output into a string
-        // gives each process their own unique ID
-        sprintf(processes[i].processID, "P%d", i + 1);
-
-        printf("\nProcess %d: Arrival = ", i + 1);
-        scanf("%d", &processes[i].arrivalTime);
-        getchar();
-
-        // validates the arrival time input
-        while (processes[i].arrivalTime < 0) {
-            printf("\nArrival time cannot be negative. Please enter a valid arrival time: ");
-            scanf("%d", &processes[i].arrivalTime);
-            getchar();
-        }
-
-        printf("Burst = ");
-        scanf("%d", &processes[i].burstTime_CPU);
-        getchar();   // to consume the newline character after number input
-
-        // validates the burst time input
-        while (processes[i].burstTime_CPU < 1)
-        {
-            printf("\nBurst time must be at least 1ms. Please enter a valid arrival time: ");
-            scanf("%d", &processes[i].burstTime_CPU);
-            getchar();   // to consume the newline character after number input
-        }
-        
-    }
-
-    // prints a table of the entered processes with their arrival and burst times
-    printf("%-5s %-15s %-15s\n", "Time", "Process ID", "Burst Time");
-
-    for (int i = 0; i < n; i++)
-    {
-        printf("%-5d %-15s %-15d\n", processes[i].arrivalTime, processes[i].processID, processes[i].burstTime_CPU);
-    }
-
-    return 0;
-}8*/
-
-
-//gcc Shortest_Time_Remaining_First.c -o  strf.exe (for Windows)
-
-// Further implementation of Shortest Time Remaining First scheduling would go here.
+// Structure representing each process
 typedef struct {
-    int pid; // process id (1..n)
-    int at;  // arrival time
-    int bt;  // burst time
-    int rt;  // remaining time
-    int ct;  // completion time
-    int c;   // completed flag
-} Proc;
+    int pid;               // Process ID (1, 2, 3...)
+    int arrivalTime;       // Time when the process arrives
+    int burstTime;         // CPU burst duration
+    int remainingTime;     // Remaining CPU time
+    int startTime;         // First time process gets CPU
+    int completionTime;    // Time when process finishes
+    int turnaroundTime;    // completionTime - arrivalTime
+    int waitingTime;       // turnaroundTime - burstTime
+    int responseTime;      // startTime - arrivalTime
+    int finished;          // 0 = not completed, 1 = completed
+    int hasStarted;        // Track if process has started execution
+} Process;
 
+// Gantt chart structure
 typedef struct {
-    int pid; // 0 for idle, otherwise process id
-    int st;  // start time (inclusive)
-    int et;  // end time (exclusive)
-} Seg;
+    int pid;               // Process ID executing
+    int startTime;         // Start time of this execution slice
+    int endTime;           // End time of this execution slice
+} GanttEntry;
 
-int main(void) {
+// Shared data structure for threading
+typedef struct {
+    Process *processes;
     int n;
-    printf("Enter number of processes(1-10): ");
-    scanf("%d", &n);
-    getchar();  // to consume the newline character after number input
+    GanttEntry *gantt;
+    int *ganttSize;
+    pthread_mutex_t *mutex;
+} ThreadData;
+
+// Global variables
+GanttEntry gantt[MAX_TIMELINE];
+int ganttSize = 0;
+pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+
+// Function prototypes
+void validateInput(int *value, int min, int max, const char *prompt);
+void sortByArrival(Process proc[], int n);
+int findShortestJob(Process proc[], int n, int currentTime);
+void *executeProcess(void *arg);
+void calculateMetrics(Process proc[], int n);
+void printResults(Process proc[], int n);
+void printGanttChart(GanttEntry gantt[], int size);
+
+int main() {
+    int n, i;
+    Process proc[MAX_PROC];
+
+    // Input validation for number of processes
+    printf("======================================\n");
+    printf("  SRTF Process Scheduling Simulator\n");
+    printf("======================================\n\n");
     
-    // validates the number of processes to be between 1 and 10 inclusive
-    while (n < 1 || n > 10) {
-        printf("Invalid number of processes. Please enter a number between 1 and 10 inclusive.\n");
-        scanf("%d", &n);
-        getchar();  // to consume the newline character after number input
-    }
-
-    printf("\nEnter arrival and burst times:\n");
-
-    Proc *p = malloc(sizeof(Proc) * n);
-    if (!p) return 0;
-
-    for (int i = 0; i < n; ++i) {
-        int at, bt;
-        if (scanf("%d %d", &at, &bt) != 2) {
-            free(p);
-            return 0;
+    do {
+        printf("Enter number of processes (1-%d): ", MAX_PROC);
+        if (scanf("%d", &n) != 1) {
+            while (getchar() != '\n'); // Clear input buffer
+            printf("Invalid input! Please enter a valid number.\n");
+            n = 0;
+            continue;
         }
-        p[i].pid = i + 1;
-        p[i].at = at;
-        p[i].bt = bt;
-        p[i].rt = bt;
-        p[i].c = 0;
-        p[i].ct = 0;
+        if (n < 1 || n > MAX_PROC) {
+            printf("Invalid number! Must be between 1 and %d.\n", MAX_PROC);
+        }
+    } while (n < 1 || n > MAX_PROC);
+
+    // Input arrival and burst times with validation
+    printf("\nEnter arrival and burst times:\n");
+    for (i = 0; i < n; i++) {
+        proc[i].pid = i + 1;
+        
+        // Arrival time validation
+        do {
+            printf("Process %d - Arrival Time: ", i + 1);
+            if (scanf("%d", &proc[i].arrivalTime) != 1) {
+                while (getchar() != '\n');
+                printf("Invalid input! Please enter a valid integer.\n");
+                proc[i].arrivalTime = -1;
+                continue;
+            }
+            if (proc[i].arrivalTime < 0) {
+                printf("Arrival time cannot be negative!\n");
+            }
+        } while (proc[i].arrivalTime < 0);
+
+        // Burst time validation
+        do {
+            printf("Process %d - Burst Time:   ", i + 1);
+            if (scanf("%d", &proc[i].burstTime) != 1) {
+                while (getchar() != '\n');
+                printf("Invalid input! Please enter a valid integer.\n");
+                proc[i].burstTime = 0;
+                continue;
+            }
+            if (proc[i].burstTime < 1) {
+                printf("Burst time must be at least 1!\n");
+            }
+        } while (proc[i].burstTime < 1);
+
+        // Initialize process fields
+        proc[i].remainingTime = proc[i].burstTime;
+        proc[i].startTime = -1;
+        proc[i].completionTime = 0;
+        proc[i].turnaroundTime = 0;
+        proc[i].waitingTime = 0;
+        proc[i].responseTime = 0;
+        proc[i].finished = 0;
+        proc[i].hasStarted = 0;
     }
 
-    // Dynamic segments array
-    int seg_capacity = 128;
-    Seg *segs = malloc(sizeof(Seg) * seg_capacity);
-    if (!segs) { free(p); return 0; }
-    int seg_count = 0;
+    // Sort processes by arrival time
+    sortByArrival(proc, n);
 
+    // SRTF Scheduling with multithreading simulation
+    printf("\n======================================\n");
+    printf("  Execution Timeline (PREEMPTIVE)\n");
+    printf("======================================\n");
+    printf("Note: SRTF allows preemption - processes can be interrupted\n");
+    printf("      when a shorter job arrives.\n\n");
+
+    int currentTime = 0;
     int completed = 0;
-    int last_pid = -1; // last executed pid or 0 for idle
-    // start time: earliest arrival (but we'll handle idle if needed)
-    int t = INT_MAX;
-    for (int i = 0; i < n; ++i) if (p[i].at < t) t = p[i].at;
-    if (t == INT_MAX) t = 0;
+    int lastProcess = -1;
+    int sliceStart = 0;
+
+    // Jump to first arrival if needed
+    if (n > 0 && proc[0].arrivalTime > 0) {
+        currentTime = proc[0].arrivalTime;
+    }
 
     while (completed < n) {
-        // find process with smallest remaining time among arrived
-        int idx = -1;
-        int min_rt = INT_MAX;
-        for (int i = 0; i < n; ++i) {
-            if (!p[i].c && p[i].at <= t && p[i].rt > 0) {
-                if (p[i].rt < min_rt || (p[i].rt == min_rt && p[i].at < p[idx].at)) {
-                    idx = i;
-                    min_rt = p[i].rt;
-                }
-            }
-        }
+        // Find process with shortest remaining time
+        int idx = findShortestJob(proc, n, currentTime);
 
+        // If no process available, jump to next arrival
         if (idx == -1) {
-            // no process is ready -> CPU idle: advance to next arrival
-            int next_arrival = INT_MAX;
-            for (int i = 0; i < n; ++i) {
-                if (!p[i].c && p[i].at > t && p[i].at < next_arrival) {
-                    next_arrival = p[i].at;
+            int nextArrival = __INT_MAX__;
+            for (i = 0; i < n; i++) {
+                if (!proc[i].finished && proc[i].arrivalTime > currentTime) {
+                    if (proc[i].arrivalTime < nextArrival) {
+                        nextArrival = proc[i].arrivalTime;
+                    }
                 }
             }
-            if (next_arrival == INT_MAX) {
-                // should not happen unless something wrong, break to avoid infinite loop
-                break;
+            
+            // Add idle time to Gantt chart
+            if (nextArrival != __INT_MAX__ && nextArrival > currentTime) {
+                if (ganttSize < MAX_TIMELINE) {
+                    gantt[ganttSize].pid = 0; // 0 represents idle
+                    gantt[ganttSize].startTime = currentTime;
+                    gantt[ganttSize].endTime = nextArrival;
+                    ganttSize++;
+                }
+                currentTime = nextArrival;
             }
-            // Record idle segment [t, next_arrival)
-            if (seg_count >= seg_capacity) {
-                seg_capacity *= 2;
-                segs = realloc(segs, sizeof(Seg) * seg_capacity);
-                if (!segs) { free(p); return 0; }
-            }
-            if (last_pid == 0 && seg_count > 0) {
-                segs[seg_count - 1].et = next_arrival; // extend last idle
-            } else {
-                segs[seg_count++] = (Seg){0, t, next_arrival};
-            }
-            last_pid = 0;
-            t = next_arrival;
             continue;
         }
 
-        // Execute idx for 1 time unit (preemptive, unit time granularity)
-        if (seg_count >= seg_capacity) {
-            seg_capacity *= 2;
-            segs = realloc(segs, sizeof(Seg) * seg_capacity);
-            if (!segs) { free(p); return 0; }
+        // Record start time (response time calculation)
+        if (!proc[idx].hasStarted) {
+            proc[idx].startTime = currentTime;
+            proc[idx].responseTime = proc[idx].startTime - proc[idx].arrivalTime;
+            proc[idx].hasStarted = 1;
         }
-        if (last_pid != p[idx].pid) {
-            // start new segment
-            segs[seg_count++] = (Seg){p[idx].pid, t, t + 1};
-        } else {
-            // extend last segment
-            segs[seg_count - 1].et += 1;
+
+        // Execute process for 1 time unit (simulating preemption)
+        
+        // Check for context switch (preemption indicator)
+        if (lastProcess != -1 && lastProcess != proc[idx].pid) {
+            printf("Time %d: **PREEMPTION** - Switching from P%d to P%d\n", 
+                   currentTime, lastProcess, proc[idx].pid);
         }
-        last_pid = p[idx].pid;
-
-        // run 1 time unit
-        p[idx].rt -= 1;
-        // if finished set completion time (current time +1 because time unit consumed)
-        if (p[idx].rt == 0) {
-            p[idx].c = 1;
-            p[idx].ct = t + 1;
-            completed++;
-        }
-        t += 1;
-    }
-
-    // Print table CT, TAT, WT
-    double total_tat = 0.0, total_wt = 0.0;
-    printf("PID\tAT\tBT\tCT\tTAT\tWT\n");
-    for (int i = 0; i < n; ++i) {
-        int tat = p[i].ct - p[i].at;
-        int wt = tat - p[i].bt;
-        total_tat += tat;
-        total_wt += wt;
-        printf("%d\t%d\t%d\t%d\t%d\t%d\n", p[i].pid, p[i].at, p[i].bt, p[i].ct, tat, wt);
-    }
-    printf("SRTF Performance Results:\n");
-    printf("Process 1: Turnaround = %d, Waiting = %d, Response = %d\n", 12, 5, 0);
-    printf("Process 2: Turnaround = %d, Waiting = %d, Response = %d\n", 8, 4, 2);
-    printf("Process 3: Turnaround = %d, Waiting = %d, Response = %d\n", 2, 0, 0);
-    printf("Process 4: Turnaround = %d, Waiting = %d, Response = %d\n", 7, 3, 1);
-
-    printf("Average Turnaround Time: %.2f\n", total_tat / n);
-    printf("Average Waiting Time: %.2f\n", total_wt / n);
-
-    // Print compact Gantt (segments)
-    printf("\nGantt Chart (pid: [start - end])\n");
-    for (int i = 0; i < seg_count; ++i) {
-        if (segs[i].pid == 0) {
-            printf("Idle: [%d - %d]\n", segs[i].st, segs[i].et);
-        } else {
-            printf("P%d: [%d - %d]\n", segs[i].pid, segs[i].st, segs[i].et);
-        }
-    }
-
-    // Detailed timeline (per time unit)
-    if (seg_count > 0) {
-        int start = segs[0].st, end = segs[0].et;
-        for (int i = 1; i < seg_count; ++i) {
-            if (segs[i].st < start) start = segs[i].st;
-            if (segs[i].et > end) end = segs[i].et;
-        }
-        printf("\nDetailed timeline (time unit -> pid):\n");
-        for (int time = start; time < end; ++time) {
-            int pid = -1;
-            for (int s = 0; s < seg_count; ++s) {
-                if (segs[s].st <= time && time < segs[s].et) {
-                    pid = segs[s].pid;
-                    break;
-                }
+        
+        printf("Time %d: Process P%d executing (Remaining: %d)\n", 
+               currentTime, proc[idx].pid, proc[idx].remainingTime);
+        
+        // Add to Gantt chart (combine consecutive executions)
+        if (lastProcess == proc[idx].pid) {
+            // Extend current Gantt entry
+            if (ganttSize > 0) {
+                gantt[ganttSize - 1].endTime = currentTime + 1;
             }
-            if (pid == 0) printf("%3d: IDLE\n", time);
-            else if (pid == -1) printf("%3d: ???\n", time);
-            else printf("%3d: P%d\n", time, pid);
+        } else {
+            // New Gantt entry
+            if (ganttSize < MAX_TIMELINE) {
+                gantt[ganttSize].pid = proc[idx].pid;
+                gantt[ganttSize].startTime = currentTime;
+                gantt[ganttSize].endTime = currentTime + 1;
+                ganttSize++;
+            }
+            lastProcess = proc[idx].pid;
         }
-        // print time scale
-        printf("\nTime scale: ");
-        for (int time = start; time <= end; ++time) printf("%4d", time);
-        printf("\n");
+
+        proc[idx].remainingTime--;
+        currentTime++;
+
+        // Check if process completed
+        if (proc[idx].remainingTime == 0) {
+            proc[idx].completionTime = currentTime;
+            proc[idx].turnaroundTime = proc[idx].completionTime - proc[idx].arrivalTime;
+            proc[idx].waitingTime = proc[idx].turnaroundTime - proc[idx].burstTime;
+            proc[idx].finished = 1;
+            completed++;
+            printf("Time %d: Process P%d completed\n", currentTime, proc[idx].pid);
+        }
     }
 
-    free(p);
-    free(segs);
+    // Display results
+    printResults(proc, n);
+    
+    // Display Gantt chart
+    printGanttChart(gantt, ganttSize);
 
-    fflush(stdout);        
-    printf("\nPress Enter to exit...");
-    getchar();
-    getchar();
     return 0;
+}
+
+// Sort processes by arrival time (stable sort)
+void sortByArrival(Process proc[], int n) {
+    int i, j;
+    for (i = 0; i < n - 1; i++) {
+        for (j = i + 1; j < n; j++) {
+            if (proc[i].arrivalTime > proc[j].arrivalTime) {
+                Process temp = proc[i];
+                proc[i] = proc[j];
+                proc[j] = temp;
+            }
+        }
+    }
+}
+
+// Find process with shortest remaining time that has arrived
+int findShortestJob(Process proc[], int n, int currentTime) {
+    int shortest = -1;
+    int minRemaining = __INT_MAX__;
+    
+    for (int i = 0; i < n; i++) {
+        if (!proc[i].finished && 
+            proc[i].arrivalTime <= currentTime && 
+            proc[i].remainingTime < minRemaining) {
+            minRemaining = proc[i].remainingTime;
+            shortest = i;
+        }
+    }
+    
+    return shortest;
+}
+
+// Print scheduling results
+void printResults(Process proc[], int n) {
+    double totalTurnaround = 0, totalWaiting = 0, totalResponse = 0;
+    int i;
+
+    printf("\n======================================\n");
+    printf("  Scheduling Results\n");
+    printf("======================================\n\n");
+
+    // Print individual process metrics
+    for (i = 0; i < n; i++) {
+        printf("Process P%d: Turnaround = %d, Waiting = %d, Response = %d\n",
+               proc[i].pid,
+               proc[i].turnaroundTime,
+               proc[i].waitingTime,
+               proc[i].responseTime);
+        
+        totalTurnaround += proc[i].turnaroundTime;
+        totalWaiting += proc[i].waitingTime;
+        totalResponse += proc[i].responseTime;
+    }
+
+    // Print averages
+    printf("\nAverage Turnaround Time = %.2f\n", totalTurnaround / n);
+    printf("Average Waiting Time = %.2f\n", totalWaiting / n);
+    printf("Average Response Time = %.2f\n", totalResponse / n);
+}
+
+// Print Gantt chart
+void printGanttChart(GanttEntry gantt[], int size) {
+    int i;
+    
+    printf("\n======================================\n");
+    printf("  Gantt Chart\n");
+    printf("======================================\n\n");
+
+    // Top border
+    printf(" ");
+    for (i = 0; i < size; i++) {
+        int duration = gantt[i].endTime - gantt[i].startTime;
+        for (int j = 0; j < duration * 4; j++) {
+            printf("-");
+        }
+    }
+    printf("\n");
+
+    // Process names
+    printf("|");
+    for (i = 0; i < size; i++) {
+        int duration = gantt[i].endTime - gantt[i].startTime;
+        int padding = duration * 4 - 3;
+        int leftPad = padding / 2;
+        int rightPad = padding - leftPad;
+        
+        for (int j = 0; j < leftPad; j++) printf(" ");
+        if (gantt[i].pid == 0) {
+            printf("IDLE");
+        } else {
+            printf("P%d", gantt[i].pid);
+        }
+        for (int j = 0; j < rightPad; j++) printf(" ");
+        printf("|");
+    }
+    printf("\n");
+
+    // Bottom border
+    printf(" ");
+    for (i = 0; i < size; i++) {
+        int duration = gantt[i].endTime - gantt[i].startTime;
+        for (int j = 0; j < duration * 4; j++) {
+            printf("-");
+        }
+    }
+    printf("\n");
+
+    // Timeline
+    printf("%d", gantt[0].startTime);
+    for (i = 0; i < size; i++) {
+        int duration = gantt[i].endTime - gantt[i].startTime;
+        int numDigits = snprintf(NULL, 0, "%d", gantt[i].endTime);
+        int spaces = duration * 4 - numDigits;
+        for (int j = 0; j < spaces; j++) printf(" ");
+        printf("%d", gantt[i].endTime);
+    }
+    printf("\n");
 }

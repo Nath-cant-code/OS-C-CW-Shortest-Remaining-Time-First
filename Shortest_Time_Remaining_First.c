@@ -1,5 +1,5 @@
 //Terminal code:
-//gcc srtf_multithread.c -o srtf -pthread
+//gcc Shortest_Time_Remaining_First.c -o srtf -pthread
 //.\srtf
 
 #include <stdio.h>

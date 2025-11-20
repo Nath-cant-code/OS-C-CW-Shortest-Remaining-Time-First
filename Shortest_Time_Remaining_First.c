@@ -333,15 +333,23 @@ void *processThread(void *arg) {
     return NULL;
 }
 
-// Sort processes by arrival time (stable sort)
+// Sort processes by arrival time (improved bubble sort)
+// Added swapped flag for optimisation
+// Improved bubble sort runtime:
+// Best case: O(n)
+// Worst case: O(n^2)
+// Source: Algorithms, Data Structures and Efficiency module
 void sortByArrival(Process proc[], int n) {
     int i, j;
-    for (i = 0; i < n - 1; i++) {
+    bool swapped = true;
+    for (i = 0; i < n - 1 && swapped; i++) {
+        swapped = false;
         for (j = i + 1; j < n; j++) {
             if (proc[i].arrivalTime > proc[j].arrivalTime) {
                 Process temp = proc[i];
                 proc[i] = proc[j];
                 proc[j] = temp;
+                swapped = true;
             }
         }
     }

@@ -1,0 +1,1 @@
+void printGanttChart(GanttEntry gantt[], int size) {

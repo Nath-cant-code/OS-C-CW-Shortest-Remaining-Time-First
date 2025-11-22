@@ -1,7 +1,7 @@
-//Terminal code:
-//gcc Shortest_Time_Remaining_First.c -o srtf -pthread
-//.\srtf
+// This code was written in VS Code editor,
+// hence the run code button can just be clicked to compile and run the program.
 
+// Included libraries
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -9,6 +9,7 @@
 #include <unistd.h>
 #include <stdbool.h>
 
+//  Define constants
 #define MAX_PROC 10
 #define MAX_TIMELINE 1000
 
@@ -49,17 +50,17 @@ typedef struct {
     int *ganttSize;
 } SharedData;
 
-// Global shared data
-Process processes[MAX_PROC];
-int globalCurrentTime = 0;
-int globalCompleted = 0;
-int globalCurrentProcess = -1;
-bool schedulerRunning = true;
-pthread_mutex_t schedulerMutex = PTHREAD_MUTEX_INITIALIZER;
-pthread_cond_t schedulerCond = PTHREAD_COND_INITIALIZER;
-GanttEntry gantt[MAX_TIMELINE];
-int ganttSize = 0;
-int numProcesses = 0;
+// Global variables (shared data among threads)
+Process processes[MAX_PROC];                                    // Sets a array with a maximum of 10 processes
+int globalCurrentTime = 0;                                      // Global time tracker
+int globalCompleted = 0;                                        // Number of completed processes
+int globalCurrentProcess = -1;                                  // Currently executing process index
+bool schedulerRunning = true;                                   // Scheduler running flag
+pthread_mutex_t schedulerMutex = PTHREAD_MUTEX_INITIALIZER;     // Mutex for synchronizing access
+pthread_cond_t schedulerCond = PTHREAD_COND_INITIALIZER;        // Condition variable for process scheduling
+GanttEntry gantt[MAX_TIMELINE];                                 // Gantt chart entries
+int ganttSize = 0;                                              // Number of entries in Gantt chart
+int numProcesses = 0;                                           // Total number of processes
 
 // Function prototypes
 void sortByArrival(Process proc[], int n);
@@ -70,63 +71,87 @@ void printResults(Process proc[], int n);
 void printGanttChart(GanttEntry gantt[], int size);
 
 int main() {
+    // Variable declarations
+    // n if for number of processes 
+    // i for loop iteration
     int n, i;
 
-    // Input validation for number of processes
     printf("======================================\n");
     printf("  SRTF Process Scheduling Simulator\n");
     printf("  (Multithreaded Implementation)\n");
     printf("======================================\n\n");
     
+    // Input validation for number of processes
     do {
         printf("Enter number of processes (1-%d): ", MAX_PROC);
+
+        // Check for valid integer input
         if (scanf("%d", &n) != 1) {
             while (getchar() != '\n');
             printf("Invalid input! Please enter a valid number.\n");
             n = 0;
             continue;
         }
+
+        // Check user input range
         if (n < 1 || n > MAX_PROC) {
             printf("Invalid number! Must be between 1 and %d.\n", MAX_PROC);
         }
+
+    // Repeat until valid input is received
     } while (n < 1 || n > MAX_PROC);
 
+    // Set global number of processes
     numProcesses = n;
 
     // Input arrival and burst times with validation
     printf("\nEnter arrival and burst times:\n");
+
+    // Loop to get each process's Arrival Time and Burst Time
     for (i = 0; i < n; i++) {
         processes[i].pid = i + 1;
         
-        // Arrival time validation
+        // Arrival time input validation
         do {
             printf("Process %d - Arrival Time: ", i + 1);
+
+            // Check for valid integer input
             if (scanf("%d", &processes[i].arrivalTime) != 1) {
                 while (getchar() != '\n');
                 printf("Invalid input! Please enter a valid integer.\n");
                 processes[i].arrivalTime = -1;
                 continue;
             }
+
+            // Print warning if Arrival Time is invalid
             if (processes[i].arrivalTime < 0) {
                 printf("Arrival time cannot be negative!\n");
             }
+
+        // Repeat until valid input is received
         } while (processes[i].arrivalTime < 0);
 
-        // Burst time validation
+        // Burst time input validation
         do {
             printf("Process %d - Burst Time:   ", i + 1);
+
+            // Check for valid integer input
             if (scanf("%d", &processes[i].burstTime) != 1) {
                 while (getchar() != '\n');
                 printf("Invalid input! Please enter a valid integer.\n");
                 processes[i].burstTime = 0;
                 continue;
             }
+
+            // Print warning if Burst Time is invalid
             if (processes[i].burstTime < 1) {
                 printf("Burst time must be at least 1!\n");
             }
+        
+        // Repeat until valid input is received
         } while (processes[i].burstTime < 1);
 
-        // Initialize process fields
+        // Initialise process fields
         processes[i].remainingTime = processes[i].burstTime;
         processes[i].startTime = -1;
         processes[i].completionTime = 0;
@@ -148,14 +173,18 @@ int main() {
     printf("Multithreading: Each process runs in its own thread,\n");
     printf("                coordinated by the scheduler thread.\n\n");
 
-    // Create scheduler thread
+    // Create pthread_t variable for scheduler
     pthread_t scheduler;
+
+    // Creates and runs the scheduler thread
+    // Checks if there is an error when creating the scheduler thread
     if (pthread_create(&scheduler, NULL, schedulerThread, NULL) != 0) {
         fprintf(stderr, "Error creating scheduler thread\n");
         return 1;
     }
 
-    // Create process threads
+    // Create process threads and runs the processes via processThread function
+    // Checks if each thread is created successfully
     for (i = 0; i < n; i++) {
         if (pthread_create(&processes[i].thread, NULL, processThread, &processes[i]) != 0) {
             fprintf(stderr, "Error creating process thread %d\n", i + 1);
@@ -163,10 +192,13 @@ int main() {
         }
     }
 
-    // Wait for scheduler to finish
+    // When a process a been scheduled, executed, and completed,
+    // that process's thread will finish.
+    // Hence, when all processes are done, then only the scheduler thread will finish.
+    // When scheduler is done, the scheduler thread will join back to the main thread
     pthread_join(scheduler, NULL);
 
-    // Wait for all process threads to finish
+    // Joins all process threads back to main thread
     for (i = 0; i < n; i++) {
         pthread_join(processes[i].thread, NULL);
     }
@@ -184,21 +216,25 @@ int main() {
     return 0;
 }
 
-// Scheduler thread function - coordinates process execution
+// Scheduler thread function to coordinate the process execution
 void *schedulerThread(void *arg) {
     int lastProcess = -1;
 
-    // Jump to first arrival if needed
+    // Checks if there is at least one process and if the first process arrives after time 0
+    // If condition returns true, jump to first Arrival Time
     if (numProcesses > 0 && processes[0].arrivalTime > 0) {
         pthread_mutex_lock(&schedulerMutex);
         globalCurrentTime = processes[0].arrivalTime;
         pthread_mutex_unlock(&schedulerMutex);
     }
 
+    // Runs loop while there are still processes with time remaining
     while (schedulerRunning) {
         pthread_mutex_lock(&schedulerMutex);
 
         // Check if all processes completed
+        // If true,
+        // set loop iteration condition to false
         if (globalCompleted >= numProcesses) {
             schedulerRunning = false;
             pthread_cond_broadcast(&schedulerCond);
@@ -207,11 +243,16 @@ void *schedulerThread(void *arg) {
         }
 
         // Find process with shortest remaining time
+        // Create variable to hold the index of the process's position in the array
         int idx = findShortestJob(processes, numProcesses, globalCurrentTime);
 
-        // If no process available, jump to next arrival
+        // If there exists no process with a shorter remaining time than the current process,
+        // that means the process can execute up until  
+        // next closest Arrival Time of another process.
         if (idx == -1) {
             int nextArrival = __INT_MAX__;
+
+            // Iterate through the processes array to find the next closest Arrival Time
             for (int i = 0; i < numProcesses; i++) {
                 if (!processes[i].finished && processes[i].arrivalTime > globalCurrentTime) {
                     if (processes[i].arrivalTime < nextArrival) {
@@ -220,7 +261,9 @@ void *schedulerThread(void *arg) {
                 }
             }
             
+            // Checks if there exists a next Arrival Time,
             if (nextArrival != __INT_MAX__) {
+
                 // Add idle time to Gantt chart
                 if (ganttSize < MAX_TIMELINE) {
                     gantt[ganttSize].pid = 0;
@@ -228,6 +271,9 @@ void *schedulerThread(void *arg) {
                     gantt[ganttSize].endTime = nextArrival;
                     ganttSize++;
                 }
+
+                // Prints the time the CPU does not have a process occupying it
+                // Sets the globalCurrentTime to the time of the next Arrival Time
                 printf("Time %d-%d: CPU IDLE\n", globalCurrentTime, nextArrival);
                 globalCurrentTime = nextArrival;
             }
@@ -247,7 +293,8 @@ void *schedulerThread(void *arg) {
         // Add to Gantt chart
         if (lastProcess == processes[idx].pid && ganttSize > 0) {
             gantt[ganttSize - 1].endTime = globalCurrentTime + 1;
-        } else {
+        } 
+        else {
             if (ganttSize < MAX_TIMELINE) {
                 gantt[ganttSize].pid = processes[idx].pid;
                 gantt[ganttSize].startTime = globalCurrentTime;
@@ -262,16 +309,20 @@ void *schedulerThread(void *arg) {
         pthread_mutex_unlock(&schedulerMutex);
 
         // Small delay to simulate time slice execution
-        usleep(100000); // 100ms delay
+        // 100ms delay
+        usleep(100000); 
     }
 
     return NULL;
 }
 
-// Process thread function - represents individual process execution
+// Process thread function to represent the individual process execution
 void *processThread(void *arg) {
     Process *proc = (Process *)arg;
 
+    // While true loop that only breaks if either:
+    // scheduler stops running 
+    // or process is finished
     while (1) {
         pthread_mutex_lock(&schedulerMutex);
 
@@ -292,13 +343,13 @@ void *processThread(void *arg) {
             continue;
         }
 
-        // Check if process is finished
+        // Exit if process is finished
         if (proc->finished) {
             pthread_mutex_unlock(&schedulerMutex);
             break;
         }
 
-        // Record start time for response time calculation
+        // Record Start Time for Response Time calculation
         if (!proc->hasStarted) {
             proc->startTime = globalCurrentTime;
             proc->responseTime = proc->startTime - proc->arrivalTime;
@@ -310,10 +361,16 @@ void *processThread(void *arg) {
                globalCurrentTime, proc->pid, proc->remainingTime, 
                (unsigned long)pthread_self());
 
+        // Decrement Remaining Time
+        // Increment globalCurrentTime
         proc->remainingTime--;
         globalCurrentTime++;
 
-        // Check if process completed
+        // Check if process has completed
+        // If true, record the Completion Time, Turnaround Time, Waiting Time,
+        // set finished flag to true,
+        // increment globalCompleted counter,
+        // and print completion message
         if (proc->remainingTime == 0) {
             proc->completionTime = globalCurrentTime;
             proc->turnaroundTime = proc->completionTime - proc->arrivalTime;
@@ -342,8 +399,10 @@ void *processThread(void *arg) {
 void sortByArrival(Process proc[], int n) {
     int i, j;
     bool swapped = true;
+
     for (i = 0; i < n - 1 && swapped; i++) {
         swapped = false;
+
         for (j = i + 1; j < n; j++) {
             if (proc[i].arrivalTime > proc[j].arrivalTime) {
                 Process temp = proc[i];
@@ -355,7 +414,9 @@ void sortByArrival(Process proc[], int n) {
     }
 }
 
-// Find process with shortest remaining time that has arrived
+// Find process with shortest Remaining Time that has arrived
+// If there exists such a process, its index is returned
+// If no such process exists, -1 is returned
 int findShortestJob(Process proc[], int n, int currentTime) {
     int shortest = -1;
     int minRemaining = __INT_MAX__;
@@ -408,7 +469,7 @@ void printGanttChart(GanttEntry gantt[], int size) {
     printf("  Gantt Chart\n");
     printf("======================================\n\n");
 
-    // Top border
+    // Print the top border of the bar Gantt chart
     printf(" ");
     for (i = 0; i < size; i++) {
         int duration = gantt[i].endTime - gantt[i].startTime;
@@ -418,7 +479,8 @@ void printGanttChart(GanttEntry gantt[], int size) {
     }
     printf("\n");
 
-    // Process names
+    // Print the process IDs in its respective time slots 
+    // or print IDLE for the time slots where there are no processes executing
     printf("|");
     for (i = 0; i < size; i++) {
         int duration = gantt[i].endTime - gantt[i].startTime;
@@ -437,7 +499,7 @@ void printGanttChart(GanttEntry gantt[], int size) {
     }
     printf("\n");
 
-    // Bottom border
+    // Print the bottom border of the bar Gantt chart
     printf(" ");
     for (i = 0; i < size; i++) {
         int duration = gantt[i].endTime - gantt[i].startTime;
@@ -447,7 +509,7 @@ void printGanttChart(GanttEntry gantt[], int size) {
     }
     printf("\n");
 
-    // Timeline
+    // Print the time markers below the Gantt chart
     printf("%d", gantt[0].startTime);
     for (i = 0; i < size; i++) {
         int duration = gantt[i].endTime - gantt[i].startTime;

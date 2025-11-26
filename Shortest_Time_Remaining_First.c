@@ -15,7 +15,6 @@
 
 // Enum for process states
 typedef enum {
-    NEW,        // Process created but not yet arrived
     READY,      // Process arrived and waiting for CPU
     RUNNING,    // Process currently executing
     COMPLETED   // Process finished execution
@@ -172,7 +171,7 @@ int main() {
         processes[i].responseTime = 0;
         processes[i].finished = 0;
         processes[i].hasStarted = 0;
-        processes[i].state = NEW;  // Initialize state as NEW
+        processes[i].state = READY;  // Initialize state as READY
     }
 
     // Sort processes by arrival time
@@ -185,7 +184,7 @@ int main() {
     printf("      when a shorter job arrives.\n");
     printf("Multithreading: Each process runs in its own thread,\n");
     printf("                coordinated by the scheduler thread.\n\n");
-    printf("Process States: NEW -> READY -> RUNNING -> COMPLETED\n\n");
+    printf("Process States: READY -> RUNNING -> COMPLETED\n\n");
 
     // Create pthread_t variable for scheduler
     pthread_t scheduler;
@@ -233,6 +232,7 @@ int main() {
 // Scheduler thread function to coordinate the process execution
 void *schedulerThread(void *arg) {
     int lastProcess = -1;
+    bool processArrivalPrinted[MAX_PROC] = {false};  // Track which processes have printed arrival
 
     // Checks if there is at least one process and if the first process arrives after time 0
     // If condition returns true, jump to first Arrival Time
@@ -250,6 +250,23 @@ void *schedulerThread(void *arg) {
     // Runs loop while there are still processes with time remaining
     while (schedulerRunning) {
         pthread_mutex_lock(&schedulerMutex);
+
+        // Check for process arrivals and print READY status
+        for (int i = 0; i < numProcesses; i++) {
+            if (processes[i].arrivalTime == globalCurrentTime && !processArrivalPrinted[i]) {
+                printf("%-6d %-12s %-12s %-15d %-10s\n", 
+                       globalCurrentTime,
+                       (processes[i].pid == 1) ? "P1" : (processes[i].pid == 2) ? "P2" : 
+                       (processes[i].pid == 3) ? "P3" : (processes[i].pid == 4) ? "P4" :
+                       (processes[i].pid == 5) ? "P5" : (processes[i].pid == 6) ? "P6" :
+                       (processes[i].pid == 7) ? "P7" : (processes[i].pid == 8) ? "P8" :
+                       (processes[i].pid == 9) ? "P9" : "P10",
+                       "READY",
+                       processes[i].remainingTime,
+                       "-");
+                processArrivalPrinted[i] = true;
+            }
+        }
 
         // Check if all processes completed
         // If true, set loop iteration condition to false
@@ -430,11 +447,9 @@ void updateProcessStates(Process proc[], int n, int currentTime, int runningIdx)
     for (int i = 0; i < n; i++) {
         if (proc[i].finished) {
             proc[i].state = COMPLETED;
-        } else if (proc[i].arrivalTime > currentTime) {
-            proc[i].state = NEW;
         } else if (i == runningIdx) {
             proc[i].state = RUNNING;
-        } else {
+        } else if (proc[i].arrivalTime <= currentTime) {
             proc[i].state = READY;
         }
     }
@@ -443,7 +458,6 @@ void updateProcessStates(Process proc[], int n, int currentTime, int runningIdx)
 // Get string representation of process state
 const char* getStateName(ProcessState state) {
     switch(state) {
-        case NEW: return "NEW";
         case READY: return "READY";
         case RUNNING: return "RUNNING";
         case COMPLETED: return "COMPLETED";

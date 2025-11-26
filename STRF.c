@@ -13,6 +13,13 @@
 #define MAX_PROC 10
 #define MAX_TIMELINE 1000
 
+// Enum for process states
+typedef enum {
+    READY,      // Process arrived and waiting for CPU
+    RUNNING,    // Process currently executing
+    COMPLETED   // Process finished execution
+} ProcessState;
+
 // Structure representing each process
 typedef struct {
     int pid;               // Process ID (1, 2, 3...)
@@ -26,6 +33,7 @@ typedef struct {
     int responseTime;      // startTime - arrivalTime
     int finished;          // 0 = not completed, 1 = completed
     int hasStarted;        // Track if process has started execution
+    ProcessState state;    // Current state of the process
     pthread_t thread;      // Thread for this process
 } Process;
 
@@ -69,6 +77,9 @@ void *processThread(void *arg);
 void *schedulerThread(void *arg);
 void printResults(Process proc[], int n);
 void printGanttChart(GanttEntry gantt[], int size);
+void updateProcessStates(Process proc[], int n, int currentTime, int runningIdx);
+void printProcessTable(Process proc[], int n, int currentTime);
+const char* getStateName(ProcessState state);
 
 int main() {
     // Variable declarations
@@ -160,6 +171,7 @@ int main() {
         processes[i].responseTime = 0;
         processes[i].finished = 0;
         processes[i].hasStarted = 0;
+        processes[i].state = READY; 
     }
 
     // Sort processes by arrival time
@@ -172,6 +184,7 @@ int main() {
     printf("      when a shorter job arrives.\n");
     printf("Multithreading: Each process runs in its own thread,\n");
     printf("                coordinated by the scheduler thread.\n\n");
+    printf("Process States: READY -> RUNNING -> COMPLETED\n\n");
 
     // Create pthread_t variable for scheduler
     pthread_t scheduler;
@@ -219,6 +232,8 @@ int main() {
 // Scheduler thread function to coordinate the process execution
 void *schedulerThread(void *arg) {
     int lastProcess = -1;
+    // Track which processes have printed arrival
+    bool processArrivalPrinted[MAX_PROC] = {false};  
 
     // Checks if there is at least one process and if the first process arrives after time 0
     // If condition returns true, jump to first Arrival Time
@@ -228,13 +243,32 @@ void *schedulerThread(void *arg) {
         pthread_mutex_unlock(&schedulerMutex);
     }
 
+    // Print table header
+    printf("%-6s %-12s %-12s %-15s %-10s\n", 
+           "Time", "Process ID", "Status", "Remaining Time", "Thread ID");
+    printf("--------------------------------------------------------------------------------\n");
+
     // Runs loop while there are still processes with time remaining
     while (schedulerRunning) {
         pthread_mutex_lock(&schedulerMutex);
 
+        // Check for process arrivals and print READY status
+        for (int i = 0; i < numProcesses; i++) {
+            if (processes[i].arrivalTime == globalCurrentTime && !processArrivalPrinted[i]) {
+                char pidStr[10];
+                sprintf(pidStr, "P%d", processes[i].pid);
+                printf("%-6d %-12s %-12s %-15d %-10s\n", 
+                       globalCurrentTime,
+                       pidStr,
+                       "READY",
+                       processes[i].remainingTime,
+                       "-");
+                processArrivalPrinted[i] = true;
+            }
+        }
+
         // Check if all processes completed
-        // If true,
-        // set loop iteration condition to false
+        // If true, set loop iteration condition to false
         if (globalCompleted >= numProcesses) {
             schedulerRunning = false;
             pthread_cond_broadcast(&schedulerCond);
@@ -246,9 +280,11 @@ void *schedulerThread(void *arg) {
         // Create variable to hold the index of the process's position in the array
         int idx = findShortestJob(processes, numProcesses, globalCurrentTime);
 
+        // Update all process states before execution
+        updateProcessStates(processes, numProcesses, globalCurrentTime, idx);
+
         // If there exists no process with a shorter remaining time than the current process,
-        // that means the process can execute up until  
-        // next closest Arrival Time of another process.
+        // that means the process can execute up until next closest Arrival Time of another process.
         if (idx == -1) {
             int nextArrival = __INT_MAX__;
 
@@ -261,9 +297,8 @@ void *schedulerThread(void *arg) {
                 }
             }
             
-            // Checks if there exists a next Arrival Time,
+            // Checks if there exists a next Arrival Time
             if (nextArrival != __INT_MAX__) {
-
                 // Add idle time to Gantt chart
                 if (ganttSize < MAX_TIMELINE) {
                     gantt[ganttSize].pid = 0;
@@ -274,7 +309,7 @@ void *schedulerThread(void *arg) {
 
                 // Prints the time the CPU does not have a process occupying it
                 // Sets the globalCurrentTime to the time of the next Arrival Time
-                printf("Time %d-%d: CPU IDLE\n", globalCurrentTime, nextArrival);
+                printf("\n>>> Time %d-%d: CPU IDLE <<<\n\n", globalCurrentTime, nextArrival);
                 globalCurrentTime = nextArrival;
             }
             pthread_mutex_unlock(&schedulerMutex);
@@ -283,7 +318,7 @@ void *schedulerThread(void *arg) {
 
         // Check for context switch (preemption)
         if (lastProcess != -1 && lastProcess != processes[idx].pid) {
-            printf("Time %d: **PREEMPTION** - Switching from P%d to P%d\n", 
+            printf("\n>>> Time %d: **PREEMPTION** - Switching from P%d to P%d <<<\n\n", 
                    globalCurrentTime, lastProcess, processes[idx].pid);
         }
 
@@ -356,29 +391,44 @@ void *processThread(void *arg) {
             proc->hasStarted = 1;
         }
 
-        // Execute for 1 time unit
-        printf("Time %d: Process P%d executing (Remaining: %d) [Thread ID: %lu]\n", 
-               globalCurrentTime, proc->pid, proc->remainingTime, 
-               (unsigned long)pthread_self());
+        // Set state to RUNNING
+        proc->state = RUNNING;
 
-        // Decrement Remaining Time
-        // Increment globalCurrentTime
+        // Print process execution in table format
+        char pidStr[10];
+            sprintf(pidStr, "P%d", proc->pid);
+            printf("%-6d %-12s %-12s %-15s %-10lu\n", 
+                   globalCurrentTime,
+                   pidStr,
+                   getStateName(proc->state),
+                   "0",
+                   (unsigned long)pthread_self());
+
+        // Decrement Remaining Time and Increment globalCurrentTime
         proc->remainingTime--;
         globalCurrentTime++;
 
         // Check if process has completed
-        // If true, record the Completion Time, Turnaround Time, Waiting Time,
-        // set finished flag to true,
-        // increment globalCompleted counter,
-        // and print completion message
         if (proc->remainingTime == 0) {
             proc->completionTime = globalCurrentTime;
             proc->turnaroundTime = proc->completionTime - proc->arrivalTime;
             proc->waitingTime = proc->turnaroundTime - proc->burstTime;
             proc->finished = 1;
+            proc->state = COMPLETED;
             globalCompleted++;
-            printf("Time %d: Process P%d completed [Thread ID: %lu]\n", 
-                   globalCurrentTime, proc->pid, (unsigned long)pthread_self());
+            
+            // Print completion status
+            char pidStr[10];
+            sprintf(pidStr, "P%d", proc->pid);
+            printf("%-6d %-12s %-12s %-15s %-10lu\n", 
+                   globalCurrentTime,
+                   pidStr,
+                   getStateName(proc->state),
+                   "0",
+                   (unsigned long)pthread_self());
+        } else {
+            // Set back to READY after execution
+            proc->state = READY;
         }
 
         // Reset current process
@@ -388,6 +438,25 @@ void *processThread(void *arg) {
     }
 
     return NULL;
+}
+
+// Update all process states based on current time and running process
+void updateProcessStates(Process proc[], int n, int currentTime, int runningIdx) {
+    for (int i = 0; i < n; i++) {
+        if (proc[i].finished) { proc[i].state = COMPLETED; } 
+        else if (i == runningIdx) { proc[i].state = RUNNING; } 
+        else if (proc[i].arrivalTime <= currentTime) { proc[i].state = READY; }
+    }
+}
+
+// Get string representation of process state
+const char* getStateName(ProcessState state) {
+    switch(state) {
+        case READY: return "READY";
+        case RUNNING: return "RUNNING";
+        case COMPLETED: return "COMPLETED";
+        default: return "UNKNOWN";
+    }
 }
 
 // Sort processes by arrival time (improved bubble sort)

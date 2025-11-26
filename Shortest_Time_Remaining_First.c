@@ -171,7 +171,7 @@ int main() {
         processes[i].responseTime = 0;
         processes[i].finished = 0;
         processes[i].hasStarted = 0;
-        processes[i].state = READY;  // Initialize state as READY
+        processes[i].state = READY; 
     }
 
     // Sort processes by arrival time
@@ -232,7 +232,8 @@ int main() {
 // Scheduler thread function to coordinate the process execution
 void *schedulerThread(void *arg) {
     int lastProcess = -1;
-    bool processArrivalPrinted[MAX_PROC] = {false};  // Track which processes have printed arrival
+    // Track which processes have printed arrival
+    bool processArrivalPrinted[MAX_PROC] = {false};  
 
     // Checks if there is at least one process and if the first process arrives after time 0
     // If condition returns true, jump to first Arrival Time
@@ -254,13 +255,11 @@ void *schedulerThread(void *arg) {
         // Check for process arrivals and print READY status
         for (int i = 0; i < numProcesses; i++) {
             if (processes[i].arrivalTime == globalCurrentTime && !processArrivalPrinted[i]) {
+                char pidStr[10];
+                sprintf(pidStr, "P%d", processes[i].pid);
                 printf("%-6d %-12s %-12s %-15d %-10s\n", 
                        globalCurrentTime,
-                       (processes[i].pid == 1) ? "P1" : (processes[i].pid == 2) ? "P2" : 
-                       (processes[i].pid == 3) ? "P3" : (processes[i].pid == 4) ? "P4" :
-                       (processes[i].pid == 5) ? "P5" : (processes[i].pid == 6) ? "P6" :
-                       (processes[i].pid == 7) ? "P7" : (processes[i].pid == 8) ? "P8" :
-                       (processes[i].pid == 9) ? "P9" : "P10",
+                       pidStr,
                        "READY",
                        processes[i].remainingTime,
                        "-");
@@ -308,7 +307,8 @@ void *schedulerThread(void *arg) {
                     ganttSize++;
                 }
 
-                // Print CPU idle message
+                // Prints the time the CPU does not have a process occupying it
+                // Sets the globalCurrentTime to the time of the next Arrival Time
                 printf("\n>>> Time %d-%d: CPU IDLE <<<\n\n", globalCurrentTime, nextArrival);
                 globalCurrentTime = nextArrival;
             }
@@ -343,7 +343,8 @@ void *schedulerThread(void *arg) {
         pthread_cond_broadcast(&schedulerCond);
         pthread_mutex_unlock(&schedulerMutex);
 
-        // Small delay to simulate time slice execution (100ms delay)
+        // Small delay to simulate time slice execution
+        // 100ms delay
         usleep(100000); 
     }
 
@@ -355,7 +356,8 @@ void *processThread(void *arg) {
     Process *proc = (Process *)arg;
 
     // While true loop that only breaks if either:
-    // scheduler stops running or process is finished
+    // scheduler stops running 
+    // or process is finished
     while (1) {
         pthread_mutex_lock(&schedulerMutex);
 
@@ -393,16 +395,14 @@ void *processThread(void *arg) {
         proc->state = RUNNING;
 
         // Print process execution in table format
-        printf("%-6d %-12s %-12s %-15d %-10lu\n", 
-               globalCurrentTime, 
-               (proc->pid == 1) ? "P1" : (proc->pid == 2) ? "P2" : 
-               (proc->pid == 3) ? "P3" : (proc->pid == 4) ? "P4" :
-               (proc->pid == 5) ? "P5" : (proc->pid == 6) ? "P6" :
-               (proc->pid == 7) ? "P7" : (proc->pid == 8) ? "P8" :
-               (proc->pid == 9) ? "P9" : "P10",
-               getStateName(proc->state),
-               proc->remainingTime,
-               (unsigned long)pthread_self());
+        char pidStr[10];
+            sprintf(pidStr, "P%d", proc->pid);
+            printf("%-6d %-12s %-12s %-15s %-10lu\n", 
+                   globalCurrentTime,
+                   pidStr,
+                   getStateName(proc->state),
+                   "0",
+                   (unsigned long)pthread_self());
 
         // Decrement Remaining Time and Increment globalCurrentTime
         proc->remainingTime--;
@@ -418,13 +418,11 @@ void *processThread(void *arg) {
             globalCompleted++;
             
             // Print completion status
+            char pidStr[10];
+            sprintf(pidStr, "P%d", proc->pid);
             printf("%-6d %-12s %-12s %-15s %-10lu\n", 
                    globalCurrentTime,
-                   (proc->pid == 1) ? "P1" : (proc->pid == 2) ? "P2" : 
-                   (proc->pid == 3) ? "P3" : (proc->pid == 4) ? "P4" :
-                   (proc->pid == 5) ? "P5" : (proc->pid == 6) ? "P6" :
-                   (proc->pid == 7) ? "P7" : (proc->pid == 8) ? "P8" :
-                   (proc->pid == 9) ? "P9" : "P10",
+                   pidStr,
                    getStateName(proc->state),
                    "0",
                    (unsigned long)pthread_self());
@@ -445,13 +443,9 @@ void *processThread(void *arg) {
 // Update all process states based on current time and running process
 void updateProcessStates(Process proc[], int n, int currentTime, int runningIdx) {
     for (int i = 0; i < n; i++) {
-        if (proc[i].finished) {
-            proc[i].state = COMPLETED;
-        } else if (i == runningIdx) {
-            proc[i].state = RUNNING;
-        } else if (proc[i].arrivalTime <= currentTime) {
-            proc[i].state = READY;
-        }
+        if (proc[i].finished) { proc[i].state = COMPLETED; } 
+        else if (i == runningIdx) { proc[i].state = RUNNING; } 
+        else if (proc[i].arrivalTime <= currentTime) { proc[i].state = READY; }
     }
 }
 

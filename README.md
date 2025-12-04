@@ -2,7 +2,7 @@
 # Shortest Remaining Time First Process Scheduler
 This is the coursework group project for the Operating Systems and Concurrency module in Year 2 of Computer Science with Artificial Intelligence.
 
-
+This group project was done by Group 41: Nathanael Ng, Muhammad Aatik Shaikh, and Shawn Chan
 
 ## Running the Progam on VS Code 
 

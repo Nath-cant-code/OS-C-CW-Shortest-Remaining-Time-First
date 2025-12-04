@@ -394,11 +394,11 @@ void *processThread(void *arg) {
         // Print process execution in table format
         char pidStr[10];
             sprintf(pidStr, "P%d", proc->pid);
-            printf("%-6d %-12s %-12s %-15s %-10lu\n", 
+            printf("%-6d %-12s %-12s %-15d %-10lu\n", 
                    globalCurrentTime,
                    pidStr,
                    getStateName(proc->state),
-                   "0",
+                   proc->remainingTime,
                    (unsigned long)pthread_self());
 
         // Decrement Remaining Time and Increment globalCurrentTime
@@ -417,11 +417,11 @@ void *processThread(void *arg) {
             // Print completion status
             char pidStr[10];
             sprintf(pidStr, "P%d", proc->pid);
-            printf("%-6d %-12s %-12s %-15s %-10lu\n", 
+            printf("%-6d %-12s %-12s %-15d %-10lu\n", 
                    globalCurrentTime,
                    pidStr,
                    getStateName(proc->state),
-                   "0",
+                   proc->remainingTime,
                    (unsigned long)pthread_self());
         } else {
             // Set back to READY after execution

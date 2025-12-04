@@ -1,6 +1,3 @@
-// This code was written in VS Code editor,
-// hence the run code button can just be clicked to compile and run the program.
-
 // Included libraries
 #include <stdio.h>
 #include <stdlib.h>
